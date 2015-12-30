@@ -148,8 +148,12 @@ sym sin(sym);
 sym pow(sym x, double q) ;
 sym pow(sym x1, sym x2);
 sym invert(sym x);
-sym transpose(sym x);
 
+/// matrix specific
+sym transpose(sym x);
+sym det(sym x);
+sym trace(sym x);
+sym frobenius(sym x);
 
 /// symbolic jacobian
 struct jacob
