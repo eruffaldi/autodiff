@@ -1,12 +1,20 @@
 /*
-Features:
-- print C++
-- evaluate scalar
-- jacob and jacob num
+Automatic Differentiation with Matrix Support. 
+Emanuele Ruffaldi 2015 end of year project
 
-TODO
-- solve const
-- pretty print C++
+How to deal with matrices? (1) expand symbolic expressions to matrices and deal with them as single scalars 
+(2) recognize special nature of matrix differentiation AND identify matrix structures (storage and semantics)
+
+Example: (x-mu)' inv(S) (x-mu) = (x-mu)' inv(L' L) (x-mu)
+Evaluation is easy, differentiation uses the special rules of matrix calculus, following the adjoint form of the recursive scheme
+	
+	d inv(A) / dQ = d inv(A)/dA dA/dQ = inv(A) dA/dQ inv(A)
+	NB wrt scalar form 
+	d 1/a / q = a^{-2} da/dq
+
+
+References on Matrix Calculus
+- http://www.atmos.washington.edu/~dennis/MatrixCalculus.pdf
 
  */
 #include "sympp.hpp"
@@ -33,6 +41,7 @@ struct vconstspecial : public isym
 	 }
 	 void print(std::ostream & os) const override { os << name; }
 	 double operator()() const override { return value; }
+	 bool isconst() const override { return true; }
 
 	 std::shared_ptr<isym> diff(int p) const override { return zero.p_; }
 	 int nparents() const override { return 0; }
@@ -67,6 +76,8 @@ struct vconst : public isym
 	 	return os.str();
 
 	 }
+	 bool isconst() const override { return true; }
+
 	 void print(std::ostream & os) const override { os << value; }
 	 double operator()() const override { return value; }
 
@@ -75,18 +86,53 @@ struct vconst : public isym
 	 std::shared_ptr<isym> parent(int p) const override { return nullptr; }
 };
 
+/// pure constant
+struct vconstmat : public isym
+{
+	vconstmat(Eigen::MatrixXd d) : value(d) { spec = matrixspec(d.rows(),d.cols()); }
+
+	Eigen::MatrixXd value;
+
+	 //std::shared_ptr<isym> diff(int index) const override ;
+	 std::string sig() const override
+	 {
+	 	std::ostringstream os; 
+	 	os << value;
+	 	return os.str();
+
+	 }
+	 bool isconst() const override { return true; }
+	 
+	 void print(std::ostream & os) const override { os << value; }
+
+	 // TODO evaluate
+	 double operator()() const override { return NAN; }
+
+	 // TODO diff
+	 std::shared_ptr<isym> diff(int p) const override { return vconstspecial::zero.p_; }
+	 int nparents() const override { return 0; }
+	 std::shared_ptr<isym> parent(int p) const override { return nullptr; }
+};
+
+
 struct vsymbol : public isym
 {
 	std::string name;
-	double value;
+	Eigen::MatrixXd value;
 
-	vsymbol(std::string n, double v = 0) : name(n),value(v){}
+	vsymbol(std::string n, double v = 0) : name(n),value(1,1) { value(0,0) = v; }
+
+	vsymbol(std::string n, Eigen::MatrixXd v) : name(n),value(v) { spec = matrixspec(v.rows(),v.cols()); }
+
 
 	 std::string sig() const  override { return name; }
 
 	 void print(std::ostream & os) const override { os << name; }
-	 double operator()() const override { return value; }
+	 double operator()() const override { return value(0,0); }
 
+	 // TODO matrix version
+
+	 // TODO matrix version
 	 std::shared_ptr<isym> diff(int p) const override { return vconstspecial::zero.p_; }
 	 int nparents() const override { return 0; }
 	 std::shared_ptr<isym> parent(int p) const override { return nullptr; }
@@ -224,6 +270,7 @@ sym sym::operator - () const
 }
 
 
+// Matrix: scalar operation
 struct vsinop: public vunop
 {
     using vunop::vunop;
@@ -232,6 +279,7 @@ struct vsinop: public vunop
  	std::shared_ptr<isym> diff(int p) const override { return cos(up->tosym()).p_; }
 };
 
+// Matrix: scalar operation
 struct vcosop: public vunop
 {
     using vunop::vunop;
@@ -240,6 +288,7 @@ struct vcosop: public vunop
  	std::shared_ptr<isym> diff(int p) const override { return (-sin(up->tosym())).p_; }
 };
 
+// TODO: not for matrix
 struct vexpop: public vunop
 {
     using vunop::vunop;
@@ -248,12 +297,25 @@ struct vexpop: public vunop
  	std::shared_ptr<isym> diff(int p) const override { return (exp(up->tosym())).p_; }
 };
 
+// TODO: not for matrix
 struct vlogop: public vunop
 {
     using vunop::vunop;
     std::string fxop() const  override { return "log"; }
     double operator()() const override { return log((*up)()); }
  	std::shared_ptr<isym> diff(int p) const override { return (invert(up->tosym())).p_; }
+};
+
+struct vtranspose: public vunop
+{
+    using vunop::vunop;
+	vtranspose(std::shared_ptr<isym> v) : vunop(v) { spec = v->spec.transpose(); }
+
+    std::string fxop() const  override { return "transpose"; }
+    double operator()() const override { return NAN; }
+
+    // TODO NOT IMPLEMENTED
+ 	std::shared_ptr<isym> diff(int p) const override { return tosym().p_; }
 };
 
 struct vpowconstop: public vunop
@@ -320,11 +382,36 @@ sym pow(sym x, double q) { return sym(std::make_shared<vpowconstop>(x,q)); }
 sym pow(sym x1, sym x2) { return sym(std::make_shared<vpowop>(x1,x2)); }
 sym invert(sym x) { return sym(std::make_shared<vpowconstop>(x,-1)); }
 sym sqrt(sym x) { return sym(std::make_shared<vpowconstop>(x,0.5)); }
-
+sym transpose(sym x) { if(x.spec().isscalar()) return x; else return sym(std::make_shared<vtranspose>(x)); }
 
 sym::sym(std::string a, double v): p_(std::make_shared<vsymbol>(a,v))
 {
 }
+
+sym::sym(std::string name, const Eigen::MatrixXd & value) : p_(std::make_shared<vsymbol>(name,value))
+{
+
+}
+
+/// constant
+sym::sym(double d): p_(std::make_shared<vconst>(d))
+{
+
+}
+
+/// constant
+sym::sym(int d): p_(std::make_shared<vconst>(d))
+{
+
+}
+
+/// constant
+sym::sym(const Eigen::MatrixXd & value): p_(std::make_shared<vconstmat>(value))
+{
+
+}
+
+
 
 /// compactifies branches of the expression graph in which all terms are constant
 /// for a given non leaf: op(x1,...,xn):
