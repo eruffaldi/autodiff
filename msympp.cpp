@@ -86,12 +86,15 @@ struct vconstmat : public imsym
 };
 #endif
 
+/**
+ * Constant Matrix
+ */
 struct mvconstmat : public imsym
 {
 	mvconstmat(Eigen::MatrixXd value): value_(value),spec_(value.rows(),value.cols()) {}
 
 	//virtual std::shared_ptr<isym> diff(int index) const = 0;
-	 std::string sig() const override { return "vconstmat"; }
+	std::string sig() const override { return "vconstmat"; }
 
 	void print(std::ostream & os) const override
 	{
@@ -117,6 +120,9 @@ struct mvconstmat : public imsym
 	 Eigen::MatrixXd value_;
 };
 
+/*
+ * Matrix array of symbols (valuable)
+ */
 struct mvsymbol : public imsym
 {
 	mvsymbol(std::string name, matrixspec spec) {}
@@ -144,6 +150,7 @@ struct mvsymbol : public imsym
 	 std::shared_ptr<imsym> parent(int p) const override { return nullptr; }
 	 msym parentadjointS(int i) const override { return nullptr; }
 	 Eigen::MatrixXd  parentadjointN(int i) const override { return Eigen::MatrixXd::Zero(rows(),cols()); }
+	 bool set(const Eigen::MatrixXd &x) override { value_ = x;  return true; }
 
 	 Eigen::MatrixXd value_;
 };

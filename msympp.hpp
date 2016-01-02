@@ -71,34 +71,64 @@ struct matrixspec
 	matrixspec transpose() const { return matrixspec(cols,rows,storage,content); }
 };
 
-/// base class
+class msym;
+
+/**
+ * Base class for Matrix Expression Graph
+ *
+ * This is not visible to the user
+ */
 struct imsym : public std::enable_shared_from_this<imsym>
 {
+	/// for polymorphism
 	virtual ~imsym() {}
-	//virtual std::shared_ptr<isym> diff(int index) const = 0;
-	virtual std::string sig() const = 0;
-	virtual void print(std::ostream & os) const = 0;
-	virtual Eigen::MatrixXd operator()() const = 0;
-	virtual std::shared_ptr<imsym> diff(int p) const = 0;
-	virtual int nparents() const = 0;
-	virtual std::shared_ptr<imsym> parent(int p) const = 0;
-	virtual bool isconst() const { return false; }
-	virtual bool set(Eigen::MatrixXd) { return false; }
-	virtual msym parentadjointS(int i) const = 0;
-	virtual Eigen::MatrixXd  parentadjointN(int i) const = 0;
 
-	imsym tosym() const;
+	/// returns signature
+	virtual std::string sig() const = 0;
+
+	/// prints over stream
+	virtual void print(std::ostream & os) const = 0;
+
+	/// evaluates
+	virtual Eigen::MatrixXd operator()() const = 0;
+
+	/// returns parent-based derivative
+	virtual std::shared_ptr<imsym> diff(int p) const = 0;
+
+	/// number of parents
+	virtual int nparents() const = 0;
+
+	/// i-th parent
+	virtual std::shared_ptr<imsym> parent(int p) const = 0;
+
+	/// true if constant value
+	virtual bool isconst() const { return false; }
+
+	/// sets value (only for CONST or for symbols) -> in general NEVER change matrix shape
+	virtual bool set(const Eigen::MatrixXd &) { return false; }
+
+	/// returns the symbolic adjoint contribution to the i-th parent. 
+	/// NOTE: in the case of matrix expression graph the adjoint is not simply: diff * adjoint but a more general expression involving the adjoint	
+	virtual msym parentadjointS(int i, msym adjoint) const = 0;
+
+	/// returns the numeric adjoint
+	virtual Eigen::MatrixXd  parentadjointN(int i, const Eigen::MatrixXd & adjoint) const = 0;
+
+	/// returns the full shared_ptr holder given this
+	msym tosym() const;
 };
 
 
-/// valued type
+/**
+ * Value based Matrix expression Graph storing the imsym via shared_ptr
+ */
 struct msym
 {
-	/// variable
-	explicit msym(std::string name, int rows, int cols, MatrixStorage s = MatrixStorage::Scalar,MatrixContent cc = MatrixContent::Generic );
-
-	/// variable
+	/// build matrix of symbols
 	explicit msym(std::string name, matrixspec spec);
+
+	/// build matrix of symbols
+	explicit msym(std::string name, int rows, int cols, MatrixStorage s = MatrixStorage::Scalar,MatrixContent cc = MatrixContent::Generic );
 
 	/// valued matrix
 	explicit msym(const Eigen::MatrixXd & m);
