@@ -1,37 +1,6 @@
 /*
 Automatic Differentiation with Matrix Support. 
 Emanuele Ruffaldi 2015 end of year project
-
-How to deal with matrices? (1) expand symbolic expressions to matrices and deal with them as single scalars 
-(2) recognize special nature of matrix differentiation AND identify matrix structures (storage and semantics)
-
-Example: (x-mu)' inv(S) (x-mu) = (x-mu)' inv(L' L) (x-mu)
-Evaluation is easy, differentiation uses the special rules of matrix calculus, following the adjoint form of the recursive scheme
-	
-	d inv(A) / dQ = d inv(A)/dA dA/dQ = - inv(A) dA/dQ inv(A)
-	NB wrt scalar form 
-	d 1/a / q = - a^{-2} da/dq
-
-	IDEA: recursive form does not work, unless with add a suffix!
-
-	See Dannis eq 53 for the dot product case
-	
-	Matrix by Matrix general case? product rules are EASY for any product type
-
-
-Properties:
-- D(det(X)) = det(X) Tr(inv(X) DX)
-- D(ln(det(X)) = Tr(inv(X) DX )
-- chain rule
-	U = f(X) 
-	Dg(U)/DX = D g(f(X))/DX
-	Dg(U)/DX = sum sum D g(U)/u  du/dx
-- trace
-- frobenius norm
-
-References on Matrix Calculus
-- http://www.atmos.washington.edu/~dennis/MatrixCalculus.pdf
-- http://select.cs.cmu.edu/class/10725-S10/recitations/r4/Matrix_Calculus_Algebra.pdf
  */
 #include "sympp.hpp"
 #include <sstream>
