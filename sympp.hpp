@@ -1,3 +1,7 @@
+/**
+ * C++ Automatic Diff exercise: reverse mode, scalar only
+ * Emanuele Ruffaldi
+ */
 #pragma once
 #include <memory>
 #include <string>
@@ -15,6 +19,7 @@ struct isym : public std::enable_shared_from_this<isym>
 	virtual std::string sig() const = 0;
 	virtual void print(std::ostream & os) const = 0;
 	virtual double operator()() const = 0;
+	virtual bool set(double v)  = 0;
 	virtual std::shared_ptr<isym> diff(int p) const = 0;
 	virtual int nparents() const = 0;
 	virtual std::shared_ptr<isym> parent(int p) const = 0;
@@ -35,13 +40,13 @@ struct sym
 	/// valued variable
 	sym(std::string name, const double d);
 
-
 	/// constant
 	explicit sym(double d);
 
 	/// constant
 	explicit sym(int d);
 
+	virtual bool set(double v) {return p_->set(v); }
 
 	void print(std::ostream & os) const { p_->print(os); }
 
@@ -54,6 +59,7 @@ struct sym
 	/// evaluate
 	double val() const { return (*p_)(); }
 
+	/// related terms
 	int nparents() const { return p_->nparents(); }
 	sym parent(int i) const { return (p_->parent(i))->tosym(); }
 	sym diff(int iparent) const { return (p_->diff(iparent))->tosym(); }
@@ -92,8 +98,27 @@ sym negone();
 sym zero();
 sym two();
 sym half();
-sym e();
-sym pi();
+sym sym_e();
+sym sym_pi();
+
+template <class T>
+class pi
+{
+};
+
+template <>
+class pi<sym>
+{
+public:
+	operator sym() { return sym_pi(); }
+};
+template <>
+class pi<double>
+{
+public:
+	operator double() { return M_PI; }
+};
+
 sym log2();
 sym sqrt(sym);
 sym log(sym);
@@ -106,15 +131,23 @@ sym invert(sym x);
 
 
 /// symbolic jacobian
-struct jacob
+struct jacobsym
 {
 
-	jacob(sym root,std::initializer_list<sym> vars);
+	jacobsym(sym root,std::initializer_list<sym> vars);
 
+	/// number of gradients
 	int gradients() const { return targets_.size(); } 
-	sym gradient(int i) const { return gradient(targets_[i]); }
-	sym gradient(sym s) const;
+
+	/// i-th target
 	sym gradientVar(int i) const { return targets_[i]; }
+
+	/// i-th
+	sym gradient(int i) const { return gradient(targets_[i]); }
+
+	/// by symbol
+	sym gradient(sym s) const;
+
 
 private:
 	std::vector<sym> targets_;
@@ -122,7 +155,7 @@ private:
 	void descend(sym v,bool isroot);
 };
 
-/// symbolic jacobian
+/// numeric jacobian
 struct jacobnum
 {
 
@@ -133,14 +166,20 @@ struct jacobnum
 	double gradient(int i) const { return gradient(targets_[i]); }
 	sym gradientVar(int i) const { return targets_[i]; }
 	double gradient(sym s) const ; 
-
 private:
 	sym root_;
 	std::vector<sym> targets_;
 	std::unordered_map<std::shared_ptr<isym>, double > adjoint_;
-	std::unordered_map<std::shared_ptr<isym>, std::vector<sym> > diff_;
+	std::unordered_map<std::shared_ptr<isym>, std::vector<sym> > diff_; 
+	using pti = typename std::unordered_map<std::shared_ptr<isym>, double >::iterator;
+
+	/// recursive descent of the expression tree down to leaves for computing the derivative expression wrt each term
+	/// the derivative expression is stored in diff
+	/// In dx/dy = dx/dw dw/dy this builds dx/dw
 	void descendG(sym v);
-	void descendR(sym v);
+
+	// NOTE: after FIRST run NO more allocations needed
+	void descendR(sym v,pti it);
 };
 
 

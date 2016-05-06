@@ -28,9 +28,10 @@ void descend(sym v, std::string q = std::string())
 	}
 }
 
-sym lognormal(sym y,sym mu,sym sigma)
+template <class T>
+T lognormal(T y,T mu,T sigma)
 {
-	return -0.5*pow((y-mu)/sigma,2)-log(sigma)-0.5*log(2*pi());
+	return -0.5*pow((y-mu)/sigma,2)-log(sigma)-0.5*log(2*pi<T>());
 }
 
 int main(int argc, char const *argv[])
@@ -40,12 +41,12 @@ int main(int argc, char const *argv[])
 	sym mu = sym("mu",2.0);
 	sym sigma = sym("sigma",3.0);
 
-	sym f = lognormal(y,mu,sigma);
+	sym f = lognormal<sym>(y,mu,sigma);
 	std::cout << "function " << f << std::endl;
 
-	std::cout << "eval " << f.val() << std::endl;
+	std::cout << "evalsym " << f.val() << std::endl;
+	std::cout << "evalnum " << lognormal<double>(y.val(),mu.val(),sigma.val()) << std::endl;
 
-	std::cout << "descend\n";
 	 descend(f);
 	/*
 	// TODO: evaluate when y,mu,sigma are assigned
@@ -53,7 +54,7 @@ int main(int argc, char const *argv[])
 	std::cout << "function replacement " << fs << std::endl;
 	*/
 	std::cout << "symbolic jacobian\n";
-	jacob J(f,{y,mu,sigma});
+	jacobsym J(f,{y,mu,sigma});
 	for(int i = 0; i < J.gradients(); i++)
 	{
 		std::cout << J.gradientVar(i) << ": " << J.gradient(i) << " => " << J.gradient(i).val() << std::endl;
@@ -63,9 +64,18 @@ int main(int argc, char const *argv[])
 	
 	std::cout << "numeric jacobian\n";
 	jacobnum J2(f,{y,mu,sigma});
+	std::cout << "value is " << f.val() << std::endl;
 	for(int i = 0; i < J2.gradients(); i++)
 	{
-		std::cout << J2.gradientVar(i) << ": " << J2.gradient(i) << std::endl;
+		std::cout << "J " << J2.gradientVar(i) << ": " << J2.gradient(i) << std::endl;
+	}
+	// TODO: easy way to update y without rewriting the sym
+	y.set(10);
+	J2.update();
+	std::cout << "value is " << f.val() << std::endl;
+	for(int i = 0; i < J2.gradients(); i++)
+	{
+		std::cout << "J " << J2.gradientVar(i) << ": " << J2.gradient(i) << std::endl;
 	}
 	return 0;
 }

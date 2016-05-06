@@ -18,6 +18,9 @@ struct vconstspecial : public isym
 	/// constructor with all the inspectionable information
 	vconstspecial(Const aid, double avalue, std::string aname): id(aid),value(avalue),name(aname)
 	{}
+	
+	bool set(double v)  override { return false; }
+
 
 public:
 	double value;
@@ -49,7 +52,7 @@ public:
 };
 
 sym vconstspecial::e(std::make_shared<vconstspecial>(vconstspecial::E,2.7182818284590452353602874,"e"));
-sym vconstspecial::pi(std::make_shared<vconstspecial>(vconstspecial::PI,3.141592653589793238462643,"pi"));
+sym vconstspecial::pi(std::make_shared<vconstspecial>(vconstspecial::PI,M_PI,"pi"));
 sym vconstspecial::log2(std::make_shared<vconstspecial>(vconstspecial::LOG2,0.693147180559945,"log2"));
 sym vconstspecial::two(std::make_shared<vconstspecial>(vconstspecial::TWO,2,"2.0"));
 sym vconstspecial::half(std::make_shared<vconstspecial>(vconstspecial::HALF,0.5,"0.5"));
@@ -74,6 +77,8 @@ struct vconst : public isym
 
 	 }
 
+	bool set(double v) override { return false; }
+
 	 bool isconst() const override { return true; }
 	 void print(std::ostream & os) const override { os << value; }
 	 double operator()() const override { return value; }
@@ -97,6 +102,8 @@ struct vsymbol : public isym
 
 	/// name and scalar value
 	vsymbol(std::string n, double v = 0) : name(n) { value = v; }
+
+	bool set(double v) override { value = v; return true; }
 
 	/// name and matrix value
 	//vsymbol(std::string n, Eigen::MatrixXd v) : name(n),value(v) { spec = matrixspec(v.rows(),v.cols()); }
@@ -129,6 +136,7 @@ struct vunop : public isym
     vunop(sym a) : up(a.p_) {}
 
     virtual std::string fxop() const = 0;
+	bool set(double v) override { return false; }
     std::string sig() const  override { return fxop() + std::string("::") + up->sig(); }
     void print(std::ostream & os) const override { os << fxop() << '('; up->print(os); os << ')'; }
 
@@ -148,6 +156,7 @@ struct vbinop : public isym
     vbinop(sym a, sym b) : first(a.p_),second(b.p_) {}
     
     virtual char op() const = 0;
+	bool set(double v) override { return false; }
     std::string sig() const  override { return op() + std::string("::") + first->sig() + "::" + second->sig(); }
 
 
@@ -347,10 +356,10 @@ sym two() { return vconstspecial::two; }
 sym zero() { return vconstspecial::zero; }
 sym one() { return vconstspecial::one; }
 sym negone() { return vconstspecial::negone; }
-sym e() { return vconstspecial::e; }
+sym sym_e() { return vconstspecial::e; }
 sym log2() { return vconstspecial::log2; }
 sym half() { return vconstspecial::half; }
-sym pi() { return vconstspecial::pi; }
+sym sym_pi() { return vconstspecial::pi; }
 
 sym log(sym x) { return sym(std::make_shared<vlogop>(x)); }
 sym exp(sym x) { return sym(std::make_shared<vexpop>(x)); }
@@ -452,7 +461,7 @@ sym sym::solveconst()
 }
 #endif
 
-jacob::jacob(sym root,std::initializer_list<sym> syms)
+jacobsym::jacobsym(sym root,std::initializer_list<sym> syms)
 {
 	for(auto x: syms)
 		targets_.push_back(x.p_);
@@ -460,7 +469,7 @@ jacob::jacob(sym root,std::initializer_list<sym> syms)
 	descend(root,true);
 }
 
-sym jacob::gradient(sym s) const 
+sym jacobsym::gradient(sym s) const 
 {
 	auto it = adjoint_.find(s.p_);
 	if(it == adjoint_.end())
@@ -470,7 +479,7 @@ sym jacob::gradient(sym s) const
 }
 
 
-void jacob::descend(sym v, bool isroot)
+void jacobsym::descend(sym v, bool isroot)
 {
 	int n = v.nparents();
 
@@ -490,7 +499,6 @@ void jacob::descend(sym v, bool isroot)
 			sym p = v.parent(i);
 			auto it = adjoint_.find(p.p_);
 
-			/// TODO: matrix form has different way of doing this
 			sym r = (v.diff(i) * itm->second);
 			if(it == adjoint_.end())
 				adjoint_.emplace(std::pair<std::shared_ptr<isym>, sym >(p.p_, r));
@@ -501,9 +509,6 @@ void jacob::descend(sym v, bool isroot)
 	}
 }
 
-
-
-
 jacobnum::jacobnum(sym root,std::initializer_list<sym> syms): root_(root)
 {
 	for(auto x: syms)
@@ -512,11 +517,26 @@ jacobnum::jacobnum(sym root,std::initializer_list<sym> syms): root_(root)
 	update();
 }
 
+/**
+ * During the second evaluation
+ */
 void jacobnum::update()
 {
-	adjoint_.clear();
-	adjoint_.emplace(std::pair<std::shared_ptr<isym>, double >(root_.p_, 1));
-	descendR(root_);
+	pti it;
+	if(adjoint_.empty())
+	{
+		it = adjoint_.emplace(std::pair<std::shared_ptr<isym>, double >(root_.p_, 1)).first;
+	}
+	else
+	{
+		// cleare previous ones to zero
+		for(auto & p: adjoint_)
+			p.second = 0;
+		// re-initialize top most adjoint to 1
+		it = adjoint_.find(root_.p_);
+		it->second = 1;
+	}
+	descendR(root_,it);
 }
 
 double jacobnum::gradient(sym s) const 
@@ -528,33 +548,28 @@ double jacobnum::gradient(sym s) const
 		return it->second;
 }
 
-
-void jacobnum::descendR(sym v)
+void jacobnum::descendR(sym v,pti itm)
 {
 	int n = v.nparents();
 
 	if(n == 0) //leaf
 	{
+		return ;
 	}
 	else
 	{
-		auto itm = adjoint_.find(v.p_);
-		if(itm == adjoint_.end())
-		{
-			std::cerr << "error wrong order visit\n";
-			return;
-		}
 		auto itG = diff_.find(v.p_);
 		for(int i = 0; i < n; i++)
 		{
+			// product between the derivative and the adjoint
 			double r = itG->second[i].val()*itm->second;
 			sym p = v.parent(i);
 			auto it = adjoint_.find(p.p_);
-			if(it == adjoint_.end())
-				adjoint_.emplace(std::pair<std::shared_ptr<isym>, double >(p.p_, r));
+			if(it == adjoint_.end()) // need to create adjoint
+				it = adjoint_.emplace(std::pair<std::shared_ptr<isym>, double >(p.p_, r)).first;
 			else
 				it->second += r;
-			descendR(p);
+			descendR(p,it);
 		}
 	}
 }
@@ -567,10 +582,11 @@ void jacobnum::descendG(sym v)
 	}
 	else
 	{
+		// expression re-use
 		{
-		auto itG = diff_.find(v.p_);
-		if(itG != diff_.end())
-			return;
+			auto itG = diff_.find(v.p_);
+			if(itG != diff_.end())
+				return;
 		}
 		{
 			std::vector<sym> w;

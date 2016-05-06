@@ -13,21 +13,39 @@ Two methods do exist for computing the jacobian, that is the partial derivative 
 
 Things become interesting when the n inputs are matrices and the operations in the function are matrix operations: the resulting Jacobian can be expresse di partitioned (stacked) for with a total size J_n = sum(numel(input_i)). A different problem arises when the function has a vectorial or matrix output. This case is typical of mechanical problem during the computation of the velocity, while in machine learning we want to obtain the likelihood that is a single scalar value. 
 
+#Usage
+
+Replace your double arguments in the function with the sym class that will keep track of the expressions.
+
+Then use jaconnum passing sym objects with the name of the variables interested 
+
 #Implementation
 
-The implementation follows the Object Oriented approach by defining custom classes with support for differentiation
+The implementation follows the Operator Overloading approach together with Reverse-mode AD. A hierarchy of classes implements the operators, and then two jacobian (symbolic and numeric) are provided
 
-#Existing Libraries
+#Example Problem
 
-There are several open source libraries around and for this reason this is only a simple exercise
+Tikhonov regularized maximum log likelihood for learning covariance Sigma given empirical S:
 
-#Future Ideas
-## Computing the Hessian
-For some operations we are interested in the hessian
+	f(Sigma) = -log det(Sigma) - trace(S inv Sigma) - ||inv Sigma||_frob^2
 
-## Dealing with Lie Group functions in SE3
+#Related Libraries
 
-Products and derivatives
+There are several open source libraries around and for this reason this is only a simple exercise. The most promising is Adept2:
+
+- http://www.met.reading.ac.uk/clouds/adept2/
+- https://github.com/stan-dev/math
+
+
+#Possible Improvements
+
+- matrix or tensor values (reverse-mode is optimal for any to scalar functions as in machine learning) keeping type-safe expression trees with/without fixed dimensions
+- contextual evaluation
+- make an exercise using expression templates
+- higher order (hessian)
+- lie group specialties
+
+# Notes for the Future
 
 ## Extended Jacobian
 When the expression involves matrix operations there are better solutions to the reverse mode that remove the need to iterate for every output. The most promising approach is called Extended Jacobian (EJ) as discussed in (https://dspace.lib.cranfield.ac.uk/bitstream/1826/4356/1/ForthICCS2010.pdf), applicable also to sparse systems.
@@ -53,7 +71,7 @@ That gives: Jy = inv E (D inv B A - C)
 
 Note that with matrix operations this method still holds with the side effect of increasing the number of intermediate values v.
 
-#AD of Matrix Functions
+##AD of Matrix Functions
 See: Olsen, Rennie, 2012 and Giles 2008 An extended collection of matrix derivative results for forward and reverse mode algorithmic differentiation. The second paper is limited basic operations while the first deals with general functions.
 
 The first paper supports matrix derivatives via box product, obtaining the identities:
@@ -72,12 +90,8 @@ The first paper supports matrix derivatives via box product, obtaining the ident
 - F(X) = log det (X) = X^{-1'}
 
 
-#Example Problem
 
-Tikhonov regularized maximum log likelihood for learning covariance Sigma given empirical S:
-	f(Sigma) = -log det(Sigma) - trace(S inv Sigma) - ||inv Sigma||_frob^2
-
-# Details How to deal with matrices? 
+## Details How to deal with matrices? 
 (1) expand symbolic expressions to matrices and deal with them as single scalars 
 (2) recognize special nature of matrix differentiation AND identify matrix structures (storage and semantics)
 
