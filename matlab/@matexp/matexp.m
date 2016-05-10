@@ -39,24 +39,42 @@ classdef matexp < handle
         function autodiff(this,isroot)
             if nargin == 1
                 % the root performs the reset of the adjoints
-                resetadjoint(this,[]);
+                resetadjoint(this,0);
+                this.aadjoint = eye(length(this.avalue));
             end
             
             ops = this.aoperands;
+            A = this.aadjoint;
+            V = this.avalue;
             
             % by operation, increment adjoint of children
             switch(this.aop)
                 case '+'
+                    ops{1}.aadjoint = ops{1}.aadjoint + A;
+                    ops{2}.aadjoint = ops{2}.aadjoint + A;
                 case '-'
+                    ops{1}.aadjoint = ops{1}.aadjoint + A;
+                    ops{2}.aadjoint = ops{2}.aadjoint - A;
                 case '*'
+                    ops{1}.aadjoint = ops{1}.aadjoint + ops{2}.avalue*A;
+                    ops{2}.aadjoint = ops{2}.aadjoint + A*ops{1}.avalue;
+                case 'logdet'
+                    ops{1}.aadjoint = ops{1}.aadjoint + inv(v)'; % X^(-T)
                 case 'det'
-                case 'trace'
+                    assert('Not implemented autodiff of det');
+                case 't' 
+                    ops{1}.aadjoint = A; % propagate TODO
                 case 'vec'
                 case 'inv'
-                case ''''
-                case ''
+                    ops{1}.aadjoint = ops{1}.aadjoint - V*A*V;
+                case 'tr'
+                    ops{1}.aadjoint = A'; % propagate transpose
+                case ''  % nothing
+                    return
                 otherwise
+                    error(['Unimplemented ' this.aop]);
             end
+            this.aoperands = ops;
             
             % then continue the descent
             for I=1:length(this.aoperands)
@@ -100,10 +118,12 @@ classdef matexp < handle
                     this.avalue = this.aoperands{1}.avalue*this.aoperands{2}.avalue;
                 case 'inv'
                     this.avalue = inv(this.aoperands{1}.avalue);
-                case ''''
-                    this.avalue = this.aoperands{1}.avalue';
+                case 'tr'
+                    this.avalue = (this.aoperands{1}.avalue)';
                 case 't'
                     this.avalue = trace(this.aoperands{1}.avalue);
+                case 'logdet'
+                    this.avalue = log(det(this.aoperands{1}.avalue));
                 case 'det'
                     this.avalue = det(this.aoperands{1}.avalue);
                 case 'vec'
@@ -145,8 +165,8 @@ classdef matexp < handle
             r = matexp([],'*',{a,b});
         end        
         
-        function r = transpose(a)
-            r = matexp([],'''',{a});
+        function r = ctranspose(a)
+            r = matexp([],'tr',{a});
         end        
         
         function r = trace(a)
@@ -159,6 +179,11 @@ classdef matexp < handle
 
         function r = det(this)
             r = matexp([],'det',{this});
+        end
+                
+        function r = log(this)
+            assert(strcmp(this.aop,'det'),'Only log det supported');
+            r = matexp([],'logdet',{this.aoperands{1}});
         end
         
         % make column vector
