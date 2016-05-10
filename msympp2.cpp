@@ -89,7 +89,9 @@ struct vconst : public imsym
 	 void print(std::ostream & os) const override { os << value; }
 	 mat_t operator()() const override { return value; }
 
-	 std::shared_ptr<imsym> diff(int p) const override { return vconstspecial::zero.p_; }
+	 // leaf never called
+	 mat_t parentadjointN(int i, const mat_t & upadjoint) { return mat_t(); }
+
 	 int nparents() const override { return 0; }
 	 std::shared_ptr<imsym> parent(int p) const override { return nullptr; }
 };
@@ -125,13 +127,11 @@ struct vmsymbol : public imsym
 	 void print(std::ostream & os) const override { os << name; }
 	 mat_t operator()() const override { return value; }
 
-	 // TODO matrix version
-
-	 // TODO matrix version
-	 std::shared_ptr<imsym> diff(int p) const override { return vconstspecial::zero.p_; }
 	 int nparents() const override { return 0; }
 	 std::shared_ptr<imsym> parent(int p) const override { return nullptr; }
 
+	 // leaf never called
+	 mat_t parentadjointN(int i, const mat_t & upadjoint) { return mat_t(); }
 };
 
 #if 0
@@ -268,6 +268,57 @@ struct vmulscalarop: public vbinscalarop
 		return i == 0 ? (*first)() : (*second)();
 	}
 };
+#endif
+
+struct vinvertop: public vunop
+{
+    using vunop::vunop;
+    std::string fxop() const  override { return "invert"; }
+    mat_t operator()() const override { return (*up)().invert(); }
+
+	mat_m parentadjointN(int i, const mat_m & upadjoint) const override
+	{ 
+		// C=upadjoint
+		// A=-T2
+		// B=T2'
+		auto T = *first();
+		return - T * upadjoint * T;
+	}
+};
+
+struct vtransposeop: public vunop
+{
+    using vunop::vunop;
+    std::string fxop() const  override { return "transpose"; }
+    mat_t operator()() const override { return (*up)().transpose(); }
+
+	mat_m parentadjointN(int i, const mat_m & upadjoint) const override
+	{ 
+		// C=upadjoint
+		// A=I
+		// B=I
+		// vec'(upadjoint)(I box I)
+		return upadjoint.transpose();
+	}
+};
+
+/// mn -> scalar
+struct vtraceop: public vunop
+{
+    using vunop::vunop;
+    std::string fxop() const  override { return "trace"; }
+    mat_t operator()() const override { return trace((*up)()); }
+
+	mat_m parentadjointN(int i, const mat_m & upadjoint) const override
+	{ 
+		// C=upadjoint
+		// A=I
+		// B=I
+		// vec'(upadjoint)(I box I)
+		return upadjoint.transpose();
+	}
+};
+
 
 /**
  * Multiplication: G(X)*H(X)
@@ -278,25 +329,35 @@ struct vmulop: public vbinop
     
     char op() const override { return '*'; }
     void print(std::ostream & os) const override { os << "(" ; first->print(os); os << ")*("; second->print(os); os << ")"; }
+
+    // double evaluation
     mat_t operator()() const override { return (*first)()*(*second)(); }
 
  	// Y = G[k,w] H[w,l]
  	// (I_k kron G'(X)) d(H(X),X) + (H(X) kron I_l) d(G(X),X)
-	mat_m parentadjointN(int i, const mat_m & adjoint) const override
+ 	//
+ 	// but also: vec'(upadjoint) A kron B = vec' (B' upadjoint A)
+	mat_m parentadjointN(int i, const mat_m & upadjoint) const override
 	{ 
 		if(i == 0)
 		{
-			auto vfirst = *first();
-			return kron(stridematrix(vfirst.rows()),vfirst.transpose);
+			// C=upadjoint
+			// A=I_k
+			// B=G'(X)
+			auto G = *first();
+			return G * upadjoint * I_k;
 		}
 		else
 		{
-			auto vsecond = *second();
-			return kron(vsecond,stridematrix(vsecond.cols()));
+			// C=upadjoint
+			// A=H(X)
+			// B=I_l
+			auto H = *second();
+			return I_l * upadjoint * A;
 		}
 	}
 };
-
+#if 0
 /**
  * Division a/b 
  *
@@ -509,7 +570,7 @@ msym::msym(int d): p_(std::make_shared<vconst>(d))
 
 }
 
-
+#if 0
 jacobmsym::jacobmsym(msym root,std::initializer_list<msym> msyms)
 {
 	for(auto x: msyms)
@@ -558,33 +619,41 @@ void jacobmsym::descend(msym v, bool isroot)
 		}
 	}
 }
+#endif
 
+//	descendG(root_);
 jacobnum::jacobnum(msym root,std::initializer_list<msym> msyms): root_(root)
 {
 	for(auto x: msyms)
 		targets_.push_back(x.p_);
-	descendG(root_);
+	if(targets_.size() > 1)
+	{
+		std::cout << "only one target supported here!\n";
+		exit(1);
+	}
 	update();
 }
 
 /**
- * During the second evaluation
+ * One single pass with everything
  */
 void jacobnum::update()
 {
+	// TODO evaluate the function to obtain the output size
 	pti it;
 	if(adjoint_.empty())
 	{
+		// roots are sized: [kl,mn] one for each target
 		it = adjoint_.emplace(std::pair<std::shared_ptr<imsym>, mat_t >(root_.p_, 1)).first;
 	}
 	else
 	{
-		// cleare previous ones to zero
+		// clear previous
 		for(auto & p: adjoint_)
-			p.second = 0;
-		// re-initialize top most adjoint to 1
+			p.second.setZero();
+		// re-initialize top most adjoint to identity
 		it = adjoint_.find(root_.p_);
-		it->second = 1;
+		it->second.setIdentity();
 	}
 	descendR(root_,it);
 }
@@ -602,17 +671,19 @@ void jacobnum::descendR(msym v,pti itm)
 {
 	int n = v.nparents();
 
-	if(n == 0) //leaf
+	if(n == 0) // leaf do nothing
 	{
 		return ;
 	}
 	else
 	{
-		auto itG = diff_.find(v.p_);
+		// in one single step we compute:
+		// - value of the function
+		// - 
+		//auto itG = diff_.find(v.p_);
 		for(int i = 0; i < n; i++)
 		{
-			// product between the derivative and the adjoint
-			mat_t r = itG->second[i].val()*itm->second;
+			auto r = v.parentadjointN(i,itm->second);
 			msym p = v.parent(i);
 			auto it = adjoint_.find(p.p_);
 			if(it == adjoint_.end()) // need to create adjoint
@@ -624,6 +695,7 @@ void jacobnum::descendR(msym v,pti itm)
 	}
 }
 
+#if 0
 void jacobnum::descendG(msym v)
 {
 	int n = v.nparents();
@@ -632,7 +704,7 @@ void jacobnum::descendG(msym v)
 	}
 	else
 	{
-		// expression re-use
+		// if already computed
 		{
 			auto itG = diff_.find(v.p_);
 			if(itG != diff_.end())
@@ -649,3 +721,4 @@ void jacobnum::descendG(msym v)
 			descendG(v.parent(i));
 	}
 }
+#endif

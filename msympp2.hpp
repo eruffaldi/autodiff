@@ -181,7 +181,7 @@ msym pow(msym x, double q) ;
 msym pow(msym x1, msym x2);
 msym invert(msym x);
 
-
+#if 0
 /// msymbolic jacobian
 struct jacobmsym
 {
@@ -206,6 +206,7 @@ private:
 	std::unordered_map<std::shared_ptr<imsym>, msym > adjoint_;
 	void descend(msym v,bool isroot);
 };
+#endif
 
 /// numeric jacobian
 struct jacobnum
@@ -217,8 +218,11 @@ struct jacobnum
 	int gradients() const { return targets_.size(); } 
 	mat_t gradient(int i) const { return gradient(targets_[i]); }
 	msym gradientVar(int i) const { return targets_[i]; }
-	mat_t gradient(msym s) const ; 
+	mat_t gradient(msym s) const ;
 private:
+	void updateTargetSize(); 
+	Eigen::Vector2i inputsize;
+	
 	msym root_;
 	std::vector<msym> targets_;
 	std::unordered_map<std::shared_ptr<imsym>, mat_t > adjoint_;
@@ -228,10 +232,10 @@ private:
 	/// recursive descent of the expression tree down to leaves for computing the derivative expression wrt each term
 	/// the derivative expression is stored in diff
 	/// In dx/dy = dx/dw dw/dy this builds dx/dw
-	void descendG(msym v);
+	//void descendG(msym v);
 
 	// NOTE: after FIRST run NO more allocations needed
-	void descendR(msym v,pti it);
+	//void descendR(msym v,pti it);
 };
 
 
