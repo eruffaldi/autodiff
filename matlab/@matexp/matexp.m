@@ -46,17 +46,102 @@ classdef matexp < handle
                 update(this);
             end
             % the root performs the reset of the adjoints
-            if length(this.avalue) == 1
                 resetadjoint(this,0);
                 this.aadjoint = 1; 
-                sautodiff(this);
-            else
-                error('not yet matrix-matrix function');
+                mautodiff(this);
+                %if length(this.avalue) == 1
+                % scalar path
+                %resetadjoint(this,0);
+                %this.aadjoint = 1; 
+                %sautodiff(this);
+        end
+        
+         % computes autodiff in recursive mode
+        % ASSUMES an update of the value
+        function mautodiff(this)
+            
+            ops = this.aoperands;
+            A = this.aadjoint;
+            V = this.avalue; % this value
+            
+            % scalar functions f(X) =>  diag(vec(df(X)))
+            switch(this.aop)
+                case '+'
+                    incadjoint(ops{1},A);
+                    incadjoint(ops{2},A);
+                case '-'
+                    incadjoint(ops{1},A);
+                    incadjoint(ops{2},-A);
+                
+                case '*'
+                    % H G
+                    H = ops{1}.avalue;
+                    G = ops{2}.avalue;
+                    k = size(V,1);
+                    l = size(V,2);
+                    incadjoint(ops{1},A*kron(eye(k),G')); % by derivative of op1
+                    incadjoint(ops{2},A*kron(H,eye(l))); % by derivative of op2
+                case 'cos'
+                    q = sin(ops{1}.avalue);
+                    incadjoint(ops{1},-A*diag(q(:)));
+                case 'power'
+                    assert(ops{2}.avarcount == 0,'power needs to be constant');
+                    assert(numel(ops{2}.avalue) == 1,'power needs to be scalar');
+                    nexp = ops{2}.avalue;
+                    switch nexp
+                        case 1
+                            % X^1 == X
+                            incadjoint(ops{1},A);
+                        case 2
+                            % X.^2 scalar op
+                            incadjoint(ops{1},2*A*diag(ops{1}.avalue(:)));
+                        otherwise
+                            incadjoint(ops{1},nexp*A*diag(ops{1}.avalue(:).^(nexp-1)));
+                    end
+                 case 'mpower'
+                     assert(ops{2}.avarcount == 0,'power needs to be constant');
+                     switch ops{2}.avalue
+                         case 1
+                             incadjoint(ops{1},A);
+                        case 2 
+                            X = ops{1}.avalue;
+                            Q = eye(length(X));
+                            incadjoint(ops{1},A*(kron(Q,X)+kron(X',Q)));
+                        case 3 
+                            X = ops{1}.avalue;
+                            incadjoint(ops{1},A*(kron((X')^2,eye(length(X)))+kron(X',X)+kron(eye(length(X)),X^2)));
+                         otherwise
+                            error('not implemented generic power');%                             
+                     end
+%                 case 'logdet'
+%                     incadjoint(ops{1},inv(V)');
+%                 case 'det'
+%                     assert('Not implemented autodiff of det');
+                case 'trace'  
+                    incadjoint(ops{1},A*reshape(eye(length(ops{1}.avalue)),1,[]));
+%                 case 'vec' % vectorization
+                 case 'inv' % inversion
+                     incadjoint(ops{1},-A*kron(V,V'));
+                case 'transpose'
+                    incadjoint(ops{1},A');
+                case ''  % nothing
+                    return
+                otherwise
+                    error(['Unimplemented ' this.aop]);
+            end
+            this.aoperands = ops;
+            
+            % then continue the descent ONLY if meaningful
+            for I=1:length(this.aoperands)
+                if this.aoperands{I}.avarcount > 0
+                    mautodiff(this.aoperands{I});
+                end
             end
         end
         
-        % computes autodiff in recursive mode
-        % ASSUMES an update of the value
+        % special case when output is trace(F(X)) and we have no fully matrix
+        % operations (TO BE VERIFIED) corresponds to ADTalk.pdf and takes
+        % advantage of special properties of the trace
         function sautodiff(this)
             
             ops = this.aoperands;
@@ -80,8 +165,13 @@ classdef matexp < handle
                         case 1
                             % X^1 == X
                             incadjoint(ops{1},A);
-                        case 2
-                            incadjoint(ops{1},ops{1}.avalue*A+A*ops{1}.avalue);
+                        case 2 % FIX ME
+                            X = ops{1}.avalue;
+                            Q = eye(length(X));
+                            incadjoint(ops{1},A*(kron(Q,X)+kron(X',Q)));
+                        case 3 % FIX ME
+                            X = ops{1}.avalue;
+                            incadjoint(ops{1},A*(kron((X')^2,eye(length(X)))+kron(X',X)+kron(eye(length(X)),X^2)));
                         otherwise
                             error('not implemented generic power');
                     end
@@ -94,16 +184,21 @@ classdef matexp < handle
                         case 2
                             % same as X*X = X*A+A*X
                             incadjoint(ops{1},2*A*ops{1}.avalue);
+                        case -1
+                            incadjoint(ops{1},-V*A*V);                            
                         otherwise
-                            incadjoint(ops{1},ops{2}.avalue*(ops{1}.avalue.^(ops{2}.avalue-1)));
+                            incadjoint(ops{1},ops{2}.avalue*diag(ops{1}.avalue.^(ops{2}.avalue-1)));
                     end
                 case 'logdet'
-                    incadjoint(ops{1},inv(V)');
+                    q = inv(V)';
+                    incadjoint(ops{1},q(:)');
                 case 'det'
                     assert('Not implemented autodiff of det');
                 case 'trace'  
                     % ac.uk says: eye(n)(:)'
-                    incadjoint(ops{1},eye(length(ops{1}.avalue))*A);
+                    % not totally correct
+                    
+                    incadjoint(ops{1},A); %eye(length(ops{1}.avalue))*A);
                 case 'vec' % vectorization
                 case 'inv' % inversion
                     incadjoint(ops{1},-V*A*V);
@@ -172,6 +267,8 @@ classdef matexp < handle
                     this.avalue = this.aoperands{1}.avalue.^this.aoperands{2}.avalue;
                 case 'mpower'
                     this.avalue = this.aoperands{1}.avalue^this.aoperands{2}.avalue;
+                case 'cos'
+                    this.avalue = cos(this.aoperands{1}.avalue);
                 case 'logdet'
                     this.avalue = log(det(this.aoperands{1}.avalue));
                 case 'det'
@@ -263,6 +360,11 @@ classdef matexp < handle
             r = matexp([],'vec',{this});
         end
         
+        % make column vector
+        function r = cos(this)
+            r = matexp([],'cos',{this});
+        end
+        
         % size of the value
         function r = size(this)
             r = size(this.avalue);
@@ -280,7 +382,7 @@ classdef matexp < handle
         
         % returns adjoint
         function r = adjoint(this)
-            r = this.aadjoint';
+            r = this.aadjoint;
         end
         
         function this = incadjoint(this,value)

@@ -15,10 +15,12 @@ vars
 
 %autodiff(c)
 
-%% analyze specifically X.^2
-%clear all
+%% analyze specifically X.^k
+clc
+clear
+k = 3;
 X = matexp('X',symreal('x',[3,3]));
-F = trace(X.^2);
+F = trace(X.^k);
 autodiff(F);
 'function my sym'
 value(F)
@@ -27,10 +29,46 @@ adjoint(X)  % WROONG
 
 s = symreal('x',[3,3]);
 'function sym'
-f = trace(s.^2)
+f = trace(s.^k)
 'jacobian'
 jacobian(f,s(:))
 
+%% analyze specifically cos(X^2)
+clc
+clear
+k = 3;
+X = matexp('X',symreal('x',[3,3]));
+F = trace(cos(X.^k));
+autodiff(F);
+'function my sym'
+value(F)
+'result'
+adjoint(X)  % WROONG
+
+s = symreal('x',[3,3]);
+'function sym'
+f = trace(cos(s.^k))
+'jacobian'
+jacobian(f,s(:))
+
+
+%% analyze specifically cos(X^2)
+clc
+clear
+k = 2;
+X = matexp('X',symreal('x',[3,3]));
+F = trace(X^k);
+autodiff(F);
+'function my sym'
+value(F)
+
+s = symreal('x',[3,3]);
+'function sym'
+f = trace(s^k);
+'symresult'
+jacobian(f,s(:))
+'myresult'
+adjoint(X)  % WROONG
 
 
 %% example from paper
