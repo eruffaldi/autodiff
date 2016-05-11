@@ -34,41 +34,47 @@ classdef matexp < handle
             end
         end
 
-        % computes autodiff in recursive mode 
-        % ASSUMES an update of the value
-        function autodiff(this,isroot)
-            if nargin == 1
-                % the root performs the reset of the adjoints
+        function autodiff(this)
+            % the root performs the reset of the adjoints
+            if length(this.avalue) == 1
                 resetadjoint(this,0);
-                this.aadjoint = eye(length(this.avalue));
+                this.aadjoint = 1; 
+                sautodiff(this);
+            else
+                error('not yet matrix-matrix function');
             end
+        end
+        
+        % computes autodiff in recursive mode
+        % ASSUMES an update of the value
+        function sautodiff(this)
             
             ops = this.aoperands;
             A = this.aadjoint;
-            V = this.avalue;
+            V = this.avalue; % this value
             
             % by operation, increment adjoint of children
             switch(this.aop)
                 case '+'
-                    ops{1}.aadjoint = ops{1}.aadjoint + A;
-                    ops{2}.aadjoint = ops{2}.aadjoint + A;
+                    incadjoint(ops{1},A);
+                    incadjoint(ops{2},A);
                 case '-'
-                    ops{1}.aadjoint = ops{1}.aadjoint + A;
-                    ops{2}.aadjoint = ops{2}.aadjoint - A;
+                    incadjoint(ops{1},A);
+                    incadjoint(ops{2},-A);
                 case '*'
-                    ops{1}.aadjoint = ops{1}.aadjoint + ops{2}.avalue*A;
-                    ops{2}.aadjoint = ops{2}.aadjoint + A*ops{1}.avalue;
+                    incadjoint(ops{1},ops{2}.avalue*A);
+                    incadjoint(ops{2},A*ops{1}.avalue);
                 case 'logdet'
-                    ops{1}.aadjoint = ops{1}.aadjoint + inv(v)'; % X^(-T)
+                    incadjoint(ops{1},inv(V)');
                 case 'det'
                     assert('Not implemented autodiff of det');
-                case 't' 
-                    ops{1}.aadjoint = A; % propagate TODO
-                case 'vec'
-                case 'inv'
-                    ops{1}.aadjoint = ops{1}.aadjoint - V*A*V;
+                case 't'  % trace
+                    incadjoint(ops{1},A);
+                case 'vec' % vectorization
+                case 'inv' % inversion
+                    incadjoint(ops{1},-V*A*V);
                 case 'tr'
-                    ops{1}.aadjoint = A'; % propagate transpose
+                    incadjoint(ops{1},A');
                 case ''  % nothing
                     return
                 otherwise
@@ -78,13 +84,18 @@ classdef matexp < handle
             
             % then continue the descent
             for I=1:length(this.aoperands)
-                autodiff(this.aoperands{I},0);
+                sautodiff(this.aoperands{I});
             end
         end
         
         
         % collects the variables present in the expression tree
         function r = collectvars(this)
+            r = ucollectvars(this);
+            % TODO unique
+        end
+        
+        function r = ucollectvars(this)
             r = {};
             if  ~isempty(this.aname)
                 r = {this};
@@ -95,7 +106,6 @@ classdef matexp < handle
                 end
             end            
         end
-
         % resets he adjoint before autodiff
         function resetadjoint(this,x)
             for I=1:length(this.aoperands)
@@ -155,6 +165,7 @@ classdef matexp < handle
             r = matexp([],'-',{a,b});
         end        
         
+        
         function r = mtimes(a,b)
             if ~isa(b,'matexp')
                 b = matexp(b);
@@ -208,7 +219,12 @@ classdef matexp < handle
         
         % returns adjoint
         function r = adjoint(this)
-            r = this.aadjoint;
+            r = this.aadjoint';
+        end
+        
+        function this = incadjoint(this,value)
+            this.aadjoint = this.aadjoint + value;
+            
         end
         
         % sets the value for the constant or variable ones
