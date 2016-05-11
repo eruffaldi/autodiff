@@ -13,7 +13,25 @@ value(c)
 vars = collectvars(c);
 vars
 
-autodiff(c)
+%autodiff(c)
+
+%% analyze specifically X.^2
+%clear all
+X = matexp('X',symreal('x',[3,3]));
+F = trace(X.^2);
+autodiff(F);
+'function my sym'
+value(F)
+'result'
+adjoint(X)  % WROONG
+
+s = symreal('x',[3,3]);
+'function sym'
+f = trace(s.^2)
+'jacobian'
+jacobian(f,s(:))
+
+
 
 %% example from paper
 X = matexp('X',magic(3));
@@ -67,3 +85,22 @@ Jv = double(subs(J,ts,Xc));
 
 assert(all(abs(Jv-Q(:)')<1e-3),'Jv corresponds to manual');
 assert(all(abs(Jv-aX(:)')<1e-3),'Jv corresponds to auto');
+
+%% Example from the case of our AR Non linear
+% Dimensioning
+m=2;
+r=3; % size of xi,y
+% Variabels
+Sigma = matexp('S',ones(r,r)); % covariance of xi
+ystar = matexp('ystar',r); % fixed point
+A = matexp('A',ones(r,r)); % xi process
+lambda = matexp('lambda',ones(m,1));
+V = matexp('V',ones(r,m)); % scales the lambda
+
+% Numbers
+yi = [0.2,0.3,0.4,0.5;0.2,0.3,0.4,0.5;0.2,0.3,0.4,0.5];
+% m,n,i
+I = 4; % step
+% mui
+mui = (eye(3)-A)*ystar+A*y(:,I-1)+V*(lambda.^I)-A*V*(lambda.^(I-1));
+logLy = - (n-1)/2*log(det(Sigma)) - 1/2 * (y(:,I)-mui)'*inv(Sigma)*(y(:,I)-mui);

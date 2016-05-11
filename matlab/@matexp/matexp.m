@@ -10,6 +10,7 @@ classdef matexp < handle
         aadjoint
         aop
         aoperands
+        avarcount
     end
     
     methods
@@ -22,19 +23,28 @@ classdef matexp < handle
                 this.aname = varargin{1};
                 this.avalue = varargin{2};
                 this.aop= '';
+                this.avarcount = numel(this.avalue);
             elseif nargin == 1
                 this.avalue = varargin{1};
                 this.aop= '';
+                this.avarcount = 0;
             elseif nargin == 3
                 % skip first
                 this.aop = varargin{2};
                 this.aoperands = varargin{3};
+                this.avarcount = 0;
+                for I=1:length(this.aoperands)
+                    this.avarcount = this.avarcount + this.aoperands{I}.avarcount;
+                end
             else
                 error('Invalid matexp constructor');
             end
         end
 
         function autodiff(this)
+            if isempty(this.avalue)
+                update(this);
+            end
             % the root performs the reset of the adjoints
             if length(this.avalue) == 1
                 resetadjoint(this,0);
@@ -62,18 +72,42 @@ classdef matexp < handle
                     incadjoint(ops{1},A);
                     incadjoint(ops{2},-A);
                 case '*'
-                    incadjoint(ops{1},ops{2}.avalue*A);
-                    incadjoint(ops{2},A*ops{1}.avalue);
+                    incadjoint(ops{1},ops{2}.avalue*A); % by derivative of op1
+                    incadjoint(ops{2},A*ops{1}.avalue); % by derivative of op2
+                case 'mpower'
+                    assert(ops{2}.avarcount == 0,'power needs to be constant');
+                    switch ops{2}.avalue
+                        case 1
+                            % X^1 == X
+                            incadjoint(ops{1},A);
+                        case 2
+                            incadjoint(ops{1},ops{1}.avalue*A+A*ops{1}.avalue);
+                        otherwise
+                            error('not implemented generic power');
+                    end
+                case 'power'
+                    assert(ops{2}.avarcount == 0,'power needs to be constant');
+                    switch ops{2}.avalue
+                        case 1
+                            % X^1 == X
+                            incadjoint(ops{1},A);
+                        case 2
+                            % same as X*X = X*A+A*X
+                            incadjoint(ops{1},2*A*ops{1}.avalue);
+                        otherwise
+                            incadjoint(ops{1},ops{2}.avalue*(ops{1}.avalue.^(ops{2}.avalue-1)));
+                    end
                 case 'logdet'
                     incadjoint(ops{1},inv(V)');
                 case 'det'
                     assert('Not implemented autodiff of det');
-                case 't'  % trace
-                    incadjoint(ops{1},A);
+                case 'trace'  
+                    % ac.uk says: eye(n)(:)'
+                    incadjoint(ops{1},eye(length(ops{1}.avalue))*A);
                 case 'vec' % vectorization
                 case 'inv' % inversion
                     incadjoint(ops{1},-V*A*V);
-                case 'tr'
+                case 'transpose'
                     incadjoint(ops{1},A');
                 case ''  % nothing
                     return
@@ -82,9 +116,11 @@ classdef matexp < handle
             end
             this.aoperands = ops;
             
-            % then continue the descent
+            % then continue the descent ONLY if meaningful
             for I=1:length(this.aoperands)
-                sautodiff(this.aoperands{I});
+                if this.aoperands{I}.avarcount > 0
+                    sautodiff(this.aoperands{I});
+                end
             end
         end
         
@@ -128,10 +164,14 @@ classdef matexp < handle
                     this.avalue = this.aoperands{1}.avalue*this.aoperands{2}.avalue;
                 case 'inv'
                     this.avalue = inv(this.aoperands{1}.avalue);
-                case 'tr'
+                case 'transpose'
                     this.avalue = (this.aoperands{1}.avalue)';
-                case 't'
+                case 'trace'
                     this.avalue = trace(this.aoperands{1}.avalue);
+                case 'power'
+                    this.avalue = this.aoperands{1}.avalue.^this.aoperands{2}.avalue;
+                case 'mpower'
+                    this.avalue = this.aoperands{1}.avalue^this.aoperands{2}.avalue;
                 case 'logdet'
                     this.avalue = log(det(this.aoperands{1}.avalue));
                 case 'det'
@@ -177,11 +217,32 @@ classdef matexp < handle
         end        
         
         function r = ctranspose(a)
-            r = matexp([],'tr',{a});
+            r = matexp([],'transpose',{a});
         end        
         
+
+        function r = power(a,b)
+            if ~isa(a,'matexp')
+                a = matexp(a);
+            end
+            if ~isa(b,'matexp')
+                b = matexp(b);
+            end
+            r = matexp([],'power',{a,b});
+        end      
+        
+        function r = mpower(a,b)
+            if ~isa(a,'matexp')
+                a = matexp(a);
+            end
+            if ~isa(b,'matexp')
+                b = matexp(b);
+            end
+            r = matexp([],'mpower',{a,b});
+        end     
+                
         function r = trace(a)
-            r = matexp([],'t',{a});
+            r = matexp([],'trace',{a});
         end        
         
         function r = inv(this)
